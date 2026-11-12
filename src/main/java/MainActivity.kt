@@ -25,22 +25,22 @@ import android.widget.Toast
 
 class MainActivity : Activity() {
 
-    private var ir: ConsumerIrManager? = null
-    private lateinit var prefs: SharedPreferences
-    private lateinit var estadoTxt: TextView
-    private lateinit var chip: TextView
-    private var control: Control? = null
-    private var emparejador: Emparejador? = null
+    var ir: ConsumerIrManager? = null
+    lateinit var prefs: SharedPreferences
+    lateinit var estadoTxt: TextView
+    lateinit var chip: TextView
+    var control: Control? = null
+    var emparejador: Emparejador? = null
 
     // Búsqueda de televisores en la red
-    private lateinit var nsd: NsdManager
-    private var descubrimiento: NsdManager.DiscoveryListener? = null
-    private val encontrados = LinkedHashMap<String, String>()
-    private val lock = Any()
-    private val cola = java.util.LinkedList<NsdServiceInfo>()
-    private var resolviendo = false
-    private var ultimoIntento = 0L
-    private val manejador = Handler(Looper.getMainLooper())
+    lateinit var nsd: NsdManager
+    var descubrimiento: NsdManager.DiscoveryListener? = null
+    val encontrados = LinkedHashMap<String, String>()
+    val lock = Any()
+    val cola = java.util.LinkedList<NsdServiceInfo>()
+    var resolviendo = false
+    var ultimoIntento = 0L
+    val manejador = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -81,14 +81,14 @@ class MainActivity : Activity() {
         // Fila 1: fuente y encendido
         val fuente = pastilla("FUENTE")
         pulsable(fuente, false) { tecla(178) }
-        val encendido = pastilla("⏻  ENCENDIDO")
-        encendido.setTextColor(Color.parseColor("#E57373"))
-        encendido.setOnClickListener { encendido() }
-        encendido.setOnLongClickListener {
+        val botonEncendido = pastilla("⏻  ENCENDIDO")
+        botonEncendido.setTextColor(Color.parseColor("#E57373"))
+        botonEncendido.setOnClickListener { encendido() }
+        botonEncendido.setOnLongClickListener {
             enviarIr()
             true
         }
-        raiz.addView(fila(fuente, encendido))
+        raiz.addView(fila(fuente, botonEncendido))
 
         // Fila 2: volumen y canales
         raiz.addView(fila(doble("VOL −", 25, "VOL +", 24), doble("CH −", 167, "CH +", 166)))
@@ -140,181 +140,4 @@ class MainActivity : Activity() {
         control?.cerrar()
         emparejador?.cancelar()
     }
-
-    // ================= Diseño =================
-    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
-
-    private fun redondo(color: Int, radioDp: Int): GradientDrawable {
-        val g = GradientDrawable()
-        g.setColor(color)
-        g.cornerRadius = dp(radioDp).toFloat()
-        return g
-    }
-
-    private fun ovalo(color: Int): GradientDrawable {
-        val g = GradientDrawable()
-        g.shape = GradientDrawable.OVAL
-        g.setColor(color)
-        return g
-    }
-
-    private fun pastilla(texto: String): TextView {
-        val t = TextView(this)
-        t.text = texto
-        t.textSize = 16f
-        t.setTextColor(Color.parseColor("#B0B0B0"))
-        t.gravity = Gravity.CENTER
-        t.background = redondo(Color.parseColor("#1E1E1E"), 32)
-        return t
-    }
-
-    private fun doble(izq: String, codIzq: Int, der: String, codDer: Int): LinearLayout {
-        val c = LinearLayout(this)
-        c.orientation = LinearLayout.HORIZONTAL
-        c.background = redondo(Color.parseColor("#1E1E1E"), 32)
-        val textos = arrayOf(izq, der)
-        val codigos = intArrayOf(codIzq, codDer)
-        for (i in 0 until 2) {
-            val t = TextView(this)
-            t.text = textos[i]
-            t.textSize = 16f
-            t.setTextColor(Color.parseColor("#B0B0B0"))
-            t.gravity = Gravity.CENTER
-            t.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
-            val codigo = codigos[i]
-            pulsable(t, true) { tecla(codigo) }
-            c.addView(t)
-        }
-        return c
-    }
-
-    private fun fila(vararg vistas: View): LinearLayout {
-        val f = LinearLayout(this)
-        f.orientation = LinearLayout.HORIZONTAL
-        for (v in vistas) {
-            val p = LinearLayout.LayoutParams(0, dp(64), 1f)
-            p.setMargins(dp(6), dp(6), dp(6), dp(6))
-            v.layoutParams = p
-            f.addView(v)
-        }
-        return f
-    }
-
-    private fun flecha(simbolo: String, codigo: Int, tam: Int, gravedad: Int): TextView {
-        val t = TextView(this)
-        t.text = simbolo
-        t.textSize = 26f
-        t.setTextColor(Color.parseColor("#8A8A8A"))
-        t.gravity = Gravity.CENTER
-        t.layoutParams = FrameLayout.LayoutParams(tam, tam, gravedad)
-        pulsable(t, true) { tecla(codigo) }
-        return t
-    }
-
-    private fun crearDpad(): FrameLayout {
-        val lado = (resources.displayMetrics.widthPixels * 0.80f).toInt()
-        val marco = FrameLayout(this)
-        marco.background = ovalo(Color.parseColor("#1A1A1A"))
-        val pm = LinearLayout.LayoutParams(lado, lado)
-        pm.gravity = Gravity.CENTER_HORIZONTAL
-        pm.setMargins(0, dp(20), 0, dp(10))
-        marco.layoutParams = pm
-        val tercio = lado / 3
-        marco.addView(flecha("▲", 19, tercio, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
-        marco.addView(flecha("▼", 20, tercio, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
-        marco.addView(flecha("◀", 21, tercio, Gravity.LEFT or Gravity.CENTER_VERTICAL))
-        marco.addView(flecha("▶", 22, tercio, Gravity.RIGHT or Gravity.CENTER_VERTICAL))
-        val ok = TextView(this)
-        ok.text = "OK"
-        ok.textSize = 22f
-        ok.setTextColor(Color.WHITE)
-        ok.gravity = Gravity.CENTER
-        ok.background = ovalo(Color.parseColor("#3D3D3D"))
-        val tamOk = (lado * 0.38f).toInt()
-        ok.layoutParams = FrameLayout.LayoutParams(tamOk, tamOk, Gravity.CENTER)
-        pulsable(ok, false) { tecla(23) }
-        marco.addView(ok)
-        return marco
-    }
-
-    // Botón que responde al toque; si repetir es true, sigue enviando mientras lo mantienes
-    private fun pulsable(v: View, repetir: Boolean, accion: () -> Unit) {
-        v.setOnTouchListener { vista, evento ->
-            when (evento.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    vista.alpha = 0.6f
-                    vista.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                    accion()
-                    if (repetir) {
-                        val r = object : Runnable {
-                            override fun run() {
-                                accion()
-                                manejador.postDelayed(this, 150)
-                            }
-                        }
-                        vista.tag = r
-                        manejador.postDelayed(r, 450)
-                    }
-                    true
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    vista.alpha = 1f
-                    val r = vista.tag
-                    if (r is Runnable) manejador.removeCallbacks(r)
-                    vista.tag = null
-                    true
-                }
-                else -> true
-            }
-        }
-    }
-
-    private fun aviso(t: String) {
-        Toast.makeText(this, t, Toast.LENGTH_SHORT).show()
-    }
-
-    private fun estado(t: String) {
-        runOnUiThread {
-            estadoTxt.text = t
-            actualizarChip()
-        }
-    }
-
-    private fun actualizarChip() {
-        val nombre = prefs.getString("tv_nombre", null) ?: "Elegir televisor"
-        val ok = control?.conectado == true
-        chip.text = (if (ok) "●  " else "○  ") + nombre + "  ▾"
-        chip.background = redondo(Color.parseColor(if (ok) "#B7E4C7" else "#D9DDE0"), 24)
-    }
-
-    // ================= Menús =================
-    private fun menuMas() {
-        val items = arrayOf("Buscar televisores", "Conectar por IP…", "Ajustes IR (encendido)")
-        AlertDialog.Builder(this)
-            .setItems(items) { _, i ->
-                when (i) {
-                    0 -> buscarTv()
-                    1 -> ipDialogo()
-                    else -> ajustesIr()
-                }
-            }
-            .show()
-    }
-
-    private fun elegirDialogo() {
-        if (encontrados.isEmpty()) {
-            AlertDialog.Builder(this)
-                .setTitle("Televisores")
-                .setMessage("Aún no aparece ningún televisor en tu Wi-Fi.")
-                .setPositiveButton("Buscar de nuevo") { _, _ -> buscarTv() }
-                .setNegativeButton("Cerrar", null)
-                .show()
-            return
-        }
-        val nombres = encontrados.keys.toList()
-        val items = Array(nombres.size) { "📺 " + nombres[it] + "  (" + encontrados[nombres[it]] + ")" }
-        AlertDialog.Builder(this)
-            .setTitle("Elige tu televisor")
-            .setItems(items) { _, i ->
-                val n = nombres[i]
-                elegir(n, encontrados[n] ?: "")
+}
