@@ -5,15 +5,19 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.hardware.ConsumerIrManager
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
 import android.view.View
-import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -21,13 +25,10 @@ import android.widget.Toast
 
 class MainActivity : Activity() {
 
-    private class Accion(val texto: String, val alPulsar: () -> Unit)
-
     private var ir: ConsumerIrManager? = null
     private lateinit var prefs: SharedPreferences
-    private lateinit var campoIp: EditText
     private lateinit var estadoTxt: TextView
-    private lateinit var listaTv: LinearLayout
+    private lateinit var chip: TextView
     private var control: Control? = null
     private var emparejador: Emparejador? = null
 
@@ -49,53 +50,79 @@ class MainActivity : Activity() {
 
         val raiz = LinearLayout(this)
         raiz.orientation = LinearLayout.VERTICAL
-        raiz.setPadding(dp(12), dp(24), dp(12), dp(24))
+        raiz.setPadding(dp(14), dp(28), dp(14), dp(28))
+
+        // Barra superior: + y selector de televisor
+        val barra = LinearLayout(this)
+        barra.orientation = LinearLayout.HORIZONTAL
+        barra.gravity = Gravity.CENTER_VERTICAL
+        val mas = TextView(this)
+        mas.text = "+"
+        mas.textSize = 32f
+        mas.setTextColor(Color.WHITE)
+        mas.setPadding(dp(8), 0, dp(20), 0)
+        mas.setOnClickListener { menuMas() }
+        barra.addView(mas)
+        chip = TextView(this)
+        chip.textSize = 16f
+        chip.setTextColor(Color.parseColor("#202124"))
+        chip.setPadding(dp(20), dp(12), dp(20), dp(12))
+        chip.setOnClickListener { elegirDialogo() }
+        barra.addView(chip)
+        raiz.addView(barra)
 
         estadoTxt = TextView(this)
-        estadoTxt.setTextColor(Color.WHITE)
-        estadoTxt.textSize = 16f
+        estadoTxt.setTextColor(Color.parseColor("#8A8A8A"))
+        estadoTxt.textSize = 13f
         estadoTxt.text = "Sin conectar"
-        estadoTxt.setPadding(dp(6), dp(6), dp(6), dp(6))
+        estadoTxt.setPadding(dp(10), dp(10), dp(10), dp(10))
         raiz.addView(estadoTxt)
 
-        raiz.addView(fila(Accion("ENCENDER (IR)") { enviarIr() }, Accion("AJUSTES IR") { ajustesIr() }))
-        raiz.addView(fila(Accion("BUSCAR TELEVISORES") { buscarTv() }))
+        // Fila 1: fuente y encendido
+        val fuente = pastilla("FUENTE")
+        pulsable(fuente, false) { tecla(178) }
+        val encendido = pastilla("⏻  ENCENDIDO")
+        encendido.setTextColor(Color.parseColor("#E57373"))
+        encendido.setOnClickListener { encendido() }
+        encendido.setOnLongClickListener {
+            enviarIr()
+            true
+        }
+        raiz.addView(fila(fuente, encendido))
 
-        listaTv = LinearLayout(this)
-        listaTv.orientation = LinearLayout.VERTICAL
-        raiz.addView(listaTv)
+        // Fila 2: volumen y canales
+        raiz.addView(fila(doble("VOL −", 25, "VOL +", 24), doble("CH −", 167, "CH +", 166)))
 
-        raiz.addView(fila(Accion("ENCENDIDO (Wi-Fi)") { tecla(26) }))
-        raiz.addView(fila(Accion("VOL +") { tecla(24) }, Accion("SILENCIO") { tecla(164) }, Accion("CANAL +") { tecla(166) }))
-        raiz.addView(fila(Accion("VOL -") { tecla(25) }, Accion("FUENTE") { tecla(178) }, Accion("CANAL -") { tecla(167) }))
-        raiz.addView(fila(null, Accion("▲") { tecla(19) }, null))
-        raiz.addView(fila(Accion("◀") { tecla(21) }, Accion("OK") { tecla(23) }, Accion("▶") { tecla(22) }))
-        raiz.addView(fila(null, Accion("▼") { tecla(20) }, null))
-        raiz.addView(fila(Accion("ATRÁS") { tecla(4) }, Accion("INICIO") { tecla(3) }, Accion("MENÚ") { tecla(82) }))
-        raiz.addView(fila(Accion("⏯") { tecla(85) }))
-        raiz.addView(fila(Accion("YouTube") { abrir("https://www.youtube.com") }, Accion("Netflix") { abrir("https://www.netflix.com/title") }))
-        raiz.addView(fila(Accion("Prime Video") { abrir("https://app.primevideo.com") }, Accion("Disney+") { abrir("https://www.disneyplus.com") }))
+        // Fila 3: inicio y atrás
+        val inicio = pastilla("⌂  INICIO")
+        pulsable(inicio, false) { tecla(3) }
+        val atras = pastilla("←  ATRÁS")
+        pulsable(atras, false) { tecla(4) }
+        raiz.addView(fila(inicio, atras))
 
-        val manual = TextView(this)
-        manual.text = "Si no aparece tu TV, escribe su IP:"
-        manual.setTextColor(Color.GRAY)
-        manual.setPadding(dp(6), dp(16), dp(6), 0)
-        raiz.addView(manual)
+        // Fila 4: silencio, menú, apps
+        val silencio = pastilla("SILENCIO")
+        pulsable(silencio, false) { tecla(164) }
+        val menu = pastilla("MENÚ")
+        pulsable(menu, false) { tecla(82) }
+        val apps = pastilla("APPS")
+        apps.setOnClickListener { appsDialogo() }
+        raiz.addView(fila(silencio, menu, apps))
 
-        campoIp = EditText(this)
-        campoIp.hint = "IP del TV (ej. 192.168.1.50)"
-        campoIp.setTextColor(Color.WHITE)
-        campoIp.setHintTextColor(Color.GRAY)
-        campoIp.setText(prefs.getString("ip", ""))
-        raiz.addView(campoIp)
-        raiz.addView(fila(Accion("EMPAREJAR IP") { manualEmparejar() }, Accion("CONECTAR IP") { manualConectar() }))
+        // Círculo de navegación
+        raiz.addView(crearDpad())
+
+        // Reproducir / pausa
+        val play = pastilla("⏯")
+        pulsable(play, false) { tecla(85) }
+        raiz.addView(fila(play))
 
         val scroll = ScrollView(this)
-        scroll.setBackgroundColor(Color.parseColor("#101418"))
+        scroll.setBackgroundColor(Color.parseColor("#101010"))
         scroll.addView(raiz)
         setContentView(scroll)
 
-        refrescarLista()
+        actualizarChip()
 
         // Si ya hay un TV emparejado, intenta conectar de inmediato con su última IP
         val nombreGuardado = prefs.getString("tv_nombre", null)
@@ -114,364 +141,180 @@ class MainActivity : Activity() {
         emparejador?.cancelar()
     }
 
+    // ================= Diseño =================
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    private fun redondo(color: Int, radioDp: Int): GradientDrawable {
+        val g = GradientDrawable()
+        g.setColor(color)
+        g.cornerRadius = dp(radioDp).toFloat()
+        return g
+    }
+
+    private fun ovalo(color: Int): GradientDrawable {
+        val g = GradientDrawable()
+        g.shape = GradientDrawable.OVAL
+        g.setColor(color)
+        return g
+    }
+
+    private fun pastilla(texto: String): TextView {
+        val t = TextView(this)
+        t.text = texto
+        t.textSize = 16f
+        t.setTextColor(Color.parseColor("#B0B0B0"))
+        t.gravity = Gravity.CENTER
+        t.background = redondo(Color.parseColor("#1E1E1E"), 32)
+        return t
+    }
+
+    private fun doble(izq: String, codIzq: Int, der: String, codDer: Int): LinearLayout {
+        val c = LinearLayout(this)
+        c.orientation = LinearLayout.HORIZONTAL
+        c.background = redondo(Color.parseColor("#1E1E1E"), 32)
+        val textos = arrayOf(izq, der)
+        val codigos = intArrayOf(codIzq, codDer)
+        for (i in 0 until 2) {
+            val t = TextView(this)
+            t.text = textos[i]
+            t.textSize = 16f
+            t.setTextColor(Color.parseColor("#B0B0B0"))
+            t.gravity = Gravity.CENTER
+            t.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+            val codigo = codigos[i]
+            pulsable(t, true) { tecla(codigo) }
+            c.addView(t)
+        }
+        return c
+    }
+
+    private fun fila(vararg vistas: View): LinearLayout {
+        val f = LinearLayout(this)
+        f.orientation = LinearLayout.HORIZONTAL
+        for (v in vistas) {
+            val p = LinearLayout.LayoutParams(0, dp(64), 1f)
+            p.setMargins(dp(6), dp(6), dp(6), dp(6))
+            v.layoutParams = p
+            f.addView(v)
+        }
+        return f
+    }
+
+    private fun flecha(simbolo: String, codigo: Int, tam: Int, gravedad: Int): TextView {
+        val t = TextView(this)
+        t.text = simbolo
+        t.textSize = 26f
+        t.setTextColor(Color.parseColor("#8A8A8A"))
+        t.gravity = Gravity.CENTER
+        t.layoutParams = FrameLayout.LayoutParams(tam, tam, gravedad)
+        pulsable(t, true) { tecla(codigo) }
+        return t
+    }
+
+    private fun crearDpad(): FrameLayout {
+        val lado = (resources.displayMetrics.widthPixels * 0.80f).toInt()
+        val marco = FrameLayout(this)
+        marco.background = ovalo(Color.parseColor("#1A1A1A"))
+        val pm = LinearLayout.LayoutParams(lado, lado)
+        pm.gravity = Gravity.CENTER_HORIZONTAL
+        pm.setMargins(0, dp(20), 0, dp(10))
+        marco.layoutParams = pm
+        val tercio = lado / 3
+        marco.addView(flecha("▲", 19, tercio, Gravity.TOP or Gravity.CENTER_HORIZONTAL))
+        marco.addView(flecha("▼", 20, tercio, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL))
+        marco.addView(flecha("◀", 21, tercio, Gravity.LEFT or Gravity.CENTER_VERTICAL))
+        marco.addView(flecha("▶", 22, tercio, Gravity.RIGHT or Gravity.CENTER_VERTICAL))
+        val ok = TextView(this)
+        ok.text = "OK"
+        ok.textSize = 22f
+        ok.setTextColor(Color.WHITE)
+        ok.gravity = Gravity.CENTER
+        ok.background = ovalo(Color.parseColor("#3D3D3D"))
+        val tamOk = (lado * 0.38f).toInt()
+        ok.layoutParams = FrameLayout.LayoutParams(tamOk, tamOk, Gravity.CENTER)
+        pulsable(ok, false) { tecla(23) }
+        marco.addView(ok)
+        return marco
+    }
+
+    // Botón que responde al toque; si repetir es true, sigue enviando mientras lo mantienes
+    private fun pulsable(v: View, repetir: Boolean, accion: () -> Unit) {
+        v.setOnTouchListener { vista, evento ->
+            when (evento.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    vista.alpha = 0.6f
+                    vista.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    accion()
+                    if (repetir) {
+                        val r = object : Runnable {
+                            override fun run() {
+                                accion()
+                                manejador.postDelayed(this, 150)
+                            }
+                        }
+                        vista.tag = r
+                        manejador.postDelayed(r, 450)
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    vista.alpha = 1f
+                    val r = vista.tag
+                    if (r is Runnable) manejador.removeCallbacks(r)
+                    vista.tag = null
+                    true
+                }
+                else -> true
+            }
+        }
+    }
 
     private fun aviso(t: String) {
         Toast.makeText(this, t, Toast.LENGTH_SHORT).show()
     }
 
     private fun estado(t: String) {
-        runOnUiThread { estadoTxt.text = t }
-    }
-
-    private fun fila(vararg acciones: Accion?): LinearLayout {
-        val f = LinearLayout(this)
-        f.orientation = LinearLayout.HORIZONTAL
-        for (a in acciones) {
-            val params = LinearLayout.LayoutParams(0, dp(64), 1f)
-            params.setMargins(dp(6), dp(6), dp(6), dp(6))
-            if (a == null) {
-                val vacio = View(this)
-                vacio.layoutParams = params
-                f.addView(vacio)
-            } else {
-                val b = Button(this)
-                b.text = a.texto
-                b.textSize = 15f
-                b.layoutParams = params
-                b.setOnClickListener { a.alPulsar() }
-                f.addView(b)
-            }
-        }
-        return f
-    }
-
-    // ================= Buscar televisores en la red =================
-    private fun buscarTv() {
-        detenerBusqueda()
-        synchronized(lock) {
-            cola.clear()
-            resolviendo = false
-        }
-        encontrados.clear()
-        refrescarLista()
-        estado("Buscando televisores en tu red Wi-Fi…")
-        val l = object : NsdManager.DiscoveryListener {
-            override fun onDiscoveryStarted(tipo: String?) {}
-            override fun onServiceFound(info: NsdServiceInfo?) {
-                if (info == null) return
-                synchronized(lock) { cola.add(info) }
-                siguienteResolver()
-            }
-            override fun onServiceLost(info: NsdServiceInfo?) {}
-            override fun onDiscoveryStopped(tipo: String?) {}
-            override fun onStartDiscoveryFailed(tipo: String?, codigo: Int) {
-                estado("No se pudo buscar (error " + codigo + "). Escribe la IP a mano.")
-            }
-            override fun onStopDiscoveryFailed(tipo: String?, codigo: Int) {}
-        }
-        descubrimiento = l
-        try {
-            nsd.discoverServices("_androidtvremote2._tcp.", NsdManager.PROTOCOL_DNS_SD, l)
-        } catch (e: Exception) {
-            estado("No se pudo buscar. Escribe la IP a mano.")
-        }
-    }
-
-    private fun detenerBusqueda() {
-        val d = descubrimiento
-        if (d != null) {
-            try { nsd.stopServiceDiscovery(d) } catch (e: Exception) {}
-        }
-        descubrimiento = null
-    }
-
-    private fun siguienteResolver() {
-        val info: NsdServiceInfo? = synchronized(lock) {
-            if (resolviendo || cola.isEmpty()) {
-                null
-            } else {
-                resolviendo = true
-                cola.removeFirst()
-            }
-        }
-        if (info == null) return
-        try {
-            nsd.resolveService(info, object : NsdManager.ResolveListener {
-                override fun onResolveFailed(si: NsdServiceInfo?, codigo: Int) {
-                    terminoResolver()
-                }
-                override fun onServiceResolved(si: NsdServiceInfo?) {
-                    if (si != null) {
-                        val ip = si.host?.hostAddress
-                        if (ip != null && !ip.contains(":")) {
-                            hallado(si.serviceName, ip)
-                        }
-                    }
-                    terminoResolver()
-                }
-            })
-        } catch (e: Exception) {
-            terminoResolver()
-        }
-    }
-
-    private fun terminoResolver() {
-        synchronized(lock) { resolviendo = false }
-        siguienteResolver()
-    }
-
-    private fun hallado(nombre: String, ip: String) {
         runOnUiThread {
-            encontrados[nombre] = ip
-            refrescarLista()
-            if (encontrados.size == 1 && prefs.getString("tv_nombre", null) == null) {
-                estado("Toca tu televisor en la lista")
-            }
-            // Si es el TV ya emparejado y no hay conexión, conecta solo (aunque haya cambiado de IP)
-            val guardado = prefs.getString("tv_nombre", null)
-            val conectado = control?.conectado == true
-            val ahora = System.currentTimeMillis()
-            if (nombre == guardado && prefs.getBoolean("par_" + nombre, false) && !conectado && ahora - ultimoIntento > 4000) {
-                prefs.edit().putString("ip", ip).apply()
-                campoIp.setText(ip)
-                conectar(ip)
-            }
+            estadoTxt.text = t
+            actualizarChip()
         }
     }
 
-    private fun refrescarLista() {
-        listaTv.removeAllViews()
-        if (encontrados.isEmpty()) {
-            val t = TextView(this)
-            t.text = "Aún no aparece ningún televisor"
-            t.setTextColor(Color.GRAY)
-            t.setPadding(dp(6), dp(6), dp(6), dp(6))
-            listaTv.addView(t)
-            return
-        }
-        for ((nombre, ip) in encontrados) {
-            val b = Button(this)
-            b.text = "📺 " + nombre + "\n" + ip
-            b.isAllCaps = false
-            val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            params.setMargins(dp(6), dp(6), dp(6), dp(6))
-            b.layoutParams = params
-            b.setOnClickListener { elegir(nombre, ip) }
-            listaTv.addView(b)
-        }
+    private fun actualizarChip() {
+        val nombre = prefs.getString("tv_nombre", null) ?: "Elegir televisor"
+        val ok = control?.conectado == true
+        chip.text = (if (ok) "●  " else "○  ") + nombre + "  ▾"
+        chip.background = redondo(Color.parseColor(if (ok) "#B7E4C7" else "#D9DDE0"), 24)
     }
 
-    private fun elegir(nombre: String, ip: String) {
-        prefs.edit().putString("tv_nombre", nombre).putString("ip", ip).apply()
-        campoIp.setText(ip)
-        if (prefs.getBoolean("par_" + nombre, false)) {
-            conectar(ip)
-        } else {
-            emparejar(nombre, ip)
-        }
-    }
-
-    // ================= Wi-Fi =================
-    private fun ipTexto(): String? {
-        val ip = campoIp.text.toString().trim()
-        if (ip.isEmpty()) {
-            aviso("Escribe la IP del TV")
-            return null
-        }
-        return ip
-    }
-
-    private fun manualEmparejar() {
-        val ip = ipTexto() ?: return
-        prefs.edit().putString("tv_nombre", ip).putString("ip", ip).apply()
-        emparejar(ip, ip)
-    }
-
-    private fun manualConectar() {
-        val ip = ipTexto() ?: return
-        val nombre = prefs.getString("tv_nombre", null)
-        if (nombre == null || prefs.getString("ip", "") != ip) {
-            prefs.edit().putString("tv_nombre", ip).putString("ip", ip).apply()
-        }
-        conectar(ip)
-    }
-
-    private fun emparejar(nombre: String, ip: String) {
-        estado("Emparejando con " + nombre + "… mira la pantalla del TV")
-        emparejador?.cancelar()
-        Thread {
-            try {
-                val e = Emparejador(this, ip)
-                e.iniciar()
-                emparejador = e
-                runOnUiThread { pedirCodigo(nombre, ip) }
-            } catch (ex: Exception) {
-                estado("Error al emparejar: " + (ex.message ?: "desconocido"))
-            }
-        }.start()
-    }
-
-    private fun pedirCodigo(nombre: String, ip: String) {
-        estado("Escribe el código que salió en el TV")
-        val campo = EditText(this)
-        campo.hint = "Código de 6 caracteres"
+    // ================= Menús =================
+    private fun menuMas() {
+        val items = arrayOf("Buscar televisores", "Conectar por IP…", "Ajustes IR (encendido)")
         AlertDialog.Builder(this)
-            .setTitle("Código del TV")
-            .setView(campo)
-            .setPositiveButton("Enviar") { _, _ ->
-                val codigo = campo.text.toString()
-                Thread {
-                    try {
-                        val ok = emparejador?.terminar(codigo) ?: false
-                        if (ok) {
-                            prefs.edit().putBoolean("par_" + nombre, true).apply()
-                            runOnUiThread { conectar(ip) }
-                        } else {
-                            estado("Código incorrecto. Vuelve a tocar tu televisor")
-                        }
-                    } catch (ex: Exception) {
-                        estado("Error: " + (ex.message ?: "desconocido"))
-                    }
-                }.start()
-            }
-            .setNegativeButton("Cancelar") { _, _ -> emparejador?.cancelar() }
-            .show()
-    }
-
-    private fun conectar(ip: String) {
-        ultimoIntento = System.currentTimeMillis()
-        control?.cerrar()
-        val c = Control(this, ip) { msg -> estado(msg) }
-        control = c
-        c.conectar()
-    }
-
-    private fun tecla(codigo: Int) {
-        val c = control
-        if (c == null) {
-            aviso("Primero elige tu televisor")
-            return
-        }
-        c.tecla(codigo)
-    }
-
-    private fun abrir(enlace: String) {
-        val c = control
-        if (c == null) {
-            aviso("Primero elige tu televisor")
-            return
-        }
-        c.abrirEnlace(enlace)
-    }
-
-    // Después de encender por IR, intenta reconectar por Wi-Fi unas cuantas veces
-    private fun reconectarLuego() {
-        val nombre = prefs.getString("tv_nombre", null) ?: return
-        if (!prefs.getBoolean("par_" + nombre, false)) return
-        estado("Encendiendo… esperando que el TV conecte")
-        for (i in 1..10) {
-            manejador.postDelayed({
-                if (control?.conectado != true) {
-                    val ip = prefs.getString("ip", "") ?: ""
-                    if (ip.isNotEmpty()) conectar(ip)
-                    buscarTv()
+            .setItems(items) { _, i ->
+                when (i) {
+                    0 -> buscarTv()
+                    1 -> ipDialogo()
+                    else -> ajustesIr()
                 }
-            }, i * 8000L)
-        }
-    }
-
-    // ================= Infrarrojo =================
-    private fun numero(t: String): Int {
-        val s = t.trim().lowercase()
-        return try {
-            if (s.startsWith("0x")) s.substring(2).toInt(16) else s.toInt()
-        } catch (e: Exception) {
-            -1
-        }
-    }
-
-    private fun ajustesIr() {
-        val caja = LinearLayout(this)
-        caja.orientation = LinearLayout.VERTICAL
-        caja.setPadding(dp(20), dp(10), dp(20), dp(10))
-
-        val proto = EditText(this)
-        proto.hint = "Protocolo: NEC o JVC"
-        proto.setText(prefs.getString("ir_proto", "NEC"))
-        val dir = EditText(this)
-        dir.hint = "Dirección (número o 0x..)"
-        val d = prefs.getInt("ir_dir", -1)
-        if (d >= 0) dir.setText(d.toString())
-        val cmd = EditText(this)
-        cmd.hint = "Comando de encendido (número o 0x..)"
-        val c = prefs.getInt("ir_cmd", -1)
-        if (c >= 0) cmd.setText(c.toString())
-
-        caja.addView(proto)
-        caja.addView(dir)
-        caja.addView(cmd)
-
-        AlertDialog.Builder(this)
-            .setTitle("Código IR de encendido")
-            .setView(caja)
-            .setPositiveButton("Guardar") { _, _ ->
-                val p = if (proto.text.toString().trim().uppercase() == "JVC") "JVC" else "NEC"
-                prefs.edit()
-                    .putString("ir_proto", p)
-                    .putInt("ir_dir", numero(dir.text.toString()))
-                    .putInt("ir_cmd", numero(cmd.text.toString()))
-                    .apply()
-                aviso("Guardado")
             }
-            .setNegativeButton("Cancelar", null)
             .show()
     }
 
-    private fun enviarIr() {
-        val emisor = ir
-        if (emisor == null || !emisor.hasIrEmitter()) {
-            aviso("Este teléfono no tiene infrarrojo")
+    private fun elegirDialogo() {
+        if (encontrados.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("Televisores")
+                .setMessage("Aún no aparece ningún televisor en tu Wi-Fi.")
+                .setPositiveButton("Buscar de nuevo") { _, _ -> buscarTv() }
+                .setNegativeButton("Cerrar", null)
+                .show()
             return
         }
-        val dir = prefs.getInt("ir_dir", -1)
-        val cmd = prefs.getInt("ir_cmd", -1)
-        if (dir < 0 || cmd < 0) {
-            aviso("Falta el código IR: toca AJUSTES IR")
-            return
-        }
-        val patron = if (prefs.getString("ir_proto", "NEC") == "JVC") jvc(dir, cmd) else nec(dir, cmd)
-        emisor.transmit(38000, patron)
-        reconectarLuego()
-    }
-
-    private fun nec(dir: Int, cmd: Int): IntArray {
-        val p = ArrayList<Int>()
-        p.add(9000)
-        p.add(4500)
-        val bytes = intArrayOf(dir and 0xFF, dir.inv() and 0xFF, cmd and 0xFF, cmd.inv() and 0xFF)
-        for (b in bytes) {
-            for (i in 0 until 8) {
-                p.add(560)
-                p.add(if (((b shr i) and 1) == 1) 1690 else 560)
-            }
-        }
-        p.add(560)
-        return p.toIntArray()
-    }
-
-    private fun jvc(dir: Int, cmd: Int): IntArray {
-        val p = ArrayList<Int>()
-        p.add(8400)
-        p.add(4200)
-        val bytes = intArrayOf(dir and 0xFF, cmd and 0xFF)
-        for (b in bytes) {
-            for (i in 0 until 8) {
-                p.add(526)
-                p.add(if (((b shr i) and 1) == 1) 1578 else 526)
-            }
-        }
-        p.add(526)
-        return p.toIntArray()
-    }
-}
+        val nombres = encontrados.keys.toList()
+        val items = Array(nombres.size) { "📺 " + nombres[it] + "  (" + encontrados[nombres[it]] + ")" }
+        AlertDialog.Builder(this)
+            .setTitle("Elige tu televisor")
+            .setItems(items) { _, i ->
+                val n = nombres[i]
+                elegir(n, encontrados[n] ?: "")
