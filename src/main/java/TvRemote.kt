@@ -13,24 +13,28 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.math.BigInteger
+import java.net.ConnectException
 import java.net.InetSocketAddress
+import java.net.Socket
+import java.net.SocketTimeoutException
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
-import java.security.KeyStore
 import java.security.MessageDigest
+import java.security.Principal
 import java.security.PrivateKey
 import java.security.SecureRandom
-import java.security.cert.Certificate
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.security.interfaces.RSAPublicKey
 import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Date
 import java.util.concurrent.Executors
-import javax.net.ssl.KeyManagerFactory
+import javax.net.ssl.KeyManager
 import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLEngine
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.TrustManager
+import javax.net.ssl.X509ExtendedKeyManager
 import javax.net.ssl.X509TrustManager
 
 // ============ Protobuf mínimo (a mano, sin librerías) ============
@@ -160,22 +164,29 @@ object Identidad {
     }
 
     fun contexto(d: Datos): SSLContext {
-        val ks = KeyStore.getInstance(KeyStore.getDefaultType())
-        ks.load(null, null)
-        ks.setKeyEntry("remoto", d.privada, CLAVE, arrayOf<Certificate>(d.cert))
-        val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
-        kmf.init(ks, CLAVE)
         val ssl = SSLContext.getInstance("TLS")
-        ssl.init(kmf.keyManagers, arrayOf<TrustManager>(ConfiaTodo), SecureRandom())
+        ssl.init(arrayOf<KeyManager>(MiClaves(d.privada, d.cert)), arrayOf<TrustManager>(ConfiaTodo), SecureRandom())
         return ssl
     }
 }
 
+// Siempre entrega nuestro certificado al TV, sin filtrar por emisor
+class MiClaves(private val privada: PrivateKey, private val cert: X509Certificate) : X509ExtendedKeyManager() {
+    override fun chooseClientAlias(keyType: Array<String>?, issuers: Array<Principal>?, socket: Socket?): String = "remoto"
+    override fun chooseEngineClientAlias(keyType: Array<String>?, issuers: Array<Principal>?, engine: SSLEngine?): String = "remoto"
+    override fun chooseServerAlias(keyType: String?, issuers: Array<Principal>?, socket: Socket?): String? = null
+    override fun getClientAliases(keyType: String?, issuers: Array<Principal>?): Array<String> = arrayOf("remoto")
+    override fun getServerAliases(keyType: String?, issuers: Array<Principal>?): Array<String>? = null
+    override fun getCertificateChain(alias: String?): Array<X509Certificate> = arrayOf(cert)
+    override fun getPrivateKey(alias: String?): PrivateKey = privada
+}
+
 object Conexion {
-    fun abrir(d: Identidad.Datos, ip: String, puerto: Int): SSLSocket {
+    fun abrir(d: Identidad.Datos, ip: String, puerto: Int, soloTls12: Boolean): SSLSocket {
         val ssl = Identidad.contexto(d)
         val s = ssl.socketFactory.createSocket() as SSLSocket
         s.connect(InetSocketAddress(ip, puerto), 6000)
+        if (soloTls12) s.enabledProtocols = arrayOf("TLSv1.2")
         s.startHandshake()
         return s
     }
@@ -198,19 +209,45 @@ class Emparejador(ctx: Context, private val ip: String) {
         if (estado != 200L) throw IOException("El TV rechazó el emparejamiento")
     }
 
+    private var paso = ""
+
     // Conecta y hace que el TV muestre el código en pantalla
     fun iniciar() {
-        val s = Conexion.abrir(identidad, ip, 6467)
-        socket = s
-        val sal = s.outputStream
-        val ent = s.inputStream
-        val codificacion = Pb.campoInt(1, 3) + Pb.campoInt(2, 6)
-        Pb.enviar(sal, mensaje(Pb.campoBytes(10, Pb.campoTexto(1, "androidtv-remote") + Pb.campoTexto(2, "Remoto JVC"))))
-        leerOk(ent)
-        Pb.enviar(sal, mensaje(Pb.campoBytes(20, Pb.campoBytes(1, codificacion) + Pb.campoInt(3, 1))))
-        leerOk(ent)
-        Pb.enviar(sal, mensaje(Pb.campoBytes(30, Pb.campoBytes(1, codificacion) + Pb.campoInt(2, 1))))
-        leerOk(ent)
+        try {
+            iniciarCon(false)
+        } catch (e1: Exception) {
+            if (e1 is SocketTimeoutException || e1 is ConnectException) throw e1
+            cancelar()
+            try {
+                iniciarCon(true)
+            } catch (e2: Exception) {
+                throw IOException((e1.message ?: "") + " || " + (e2.message ?: ""))
+            }
+        }
+    }
+
+    private fun iniciarCon(tls12: Boolean) {
+        try {
+            paso = "conexión segura"
+            val s = Conexion.abrir(identidad, ip, 6467, tls12)
+            socket = s
+            val sal = s.outputStream
+            val ent = s.inputStream
+            val codificacion = Pb.campoInt(1, 3) + Pb.campoInt(2, 6)
+            paso = "solicitud"
+            Pb.enviar(sal, mensaje(Pb.campoBytes(10, Pb.campoTexto(1, "androidtvremote2") + Pb.campoTexto(2, "Remoto JVC"))))
+            leerOk(ent)
+            paso = "opciones"
+            Pb.enviar(sal, mensaje(Pb.campoBytes(20, Pb.campoBytes(1, codificacion) + Pb.campoInt(3, 1))))
+            leerOk(ent)
+            paso = "configuración"
+            Pb.enviar(sal, mensaje(Pb.campoBytes(30, Pb.campoBytes(1, codificacion) + Pb.campoInt(2, 1))))
+            leerOk(ent)
+        } catch (e: Exception) {
+            if (e is SocketTimeoutException || e is ConnectException) throw e
+            val v = if (tls12) " TLS1.2" else ""
+            throw IOException("[" + paso + v + "] " + e.javaClass.simpleName + ": " + (e.message ?: ""))
+        }
     }
 
     private fun sinCeros(n: BigInteger): ByteArray {
@@ -265,19 +302,30 @@ class Control(ctx: Context, private val ip: String, private val aviso: (String) 
 
     fun conectar() {
         Thread {
-            try {
-                aviso("Conectando…")
-                val s = Conexion.abrir(identidad, ip, 6466)
-                socket = s
-                salida = s.outputStream
-                val ent = s.inputStream
-                while (true) {
-                    procesar(Pb.leerMensaje(ent))
+            var ultimo: Exception? = null
+            for (tls12 in booleanArrayOf(false, true)) {
+                var recibio = false
+                try {
+                    aviso("Conectando…")
+                    val s = Conexion.abrir(identidad, ip, 6466, tls12)
+                    socket = s
+                    salida = s.outputStream
+                    val ent = s.inputStream
+                    while (true) {
+                        val m = Pb.leerMensaje(ent)
+                        recibio = true
+                        procesar(m)
+                    }
+                } catch (e: Exception) {
+                    salida = null
+                    conectado = false
+                    ultimo = e
+                    if (recibio || e is SocketTimeoutException || e is ConnectException) break
                 }
-            } catch (e: Exception) {
-                salida = null
-                conectado = false
-                aviso("Desconectado: " + (e.message ?: "error") + ". ¿Ya emparejaste? ¿IP correcta?")
+            }
+            val fallo = ultimo
+            if (fallo != null) {
+                aviso("Desconectado: " + fallo.javaClass.simpleName + " - " + (fallo.message ?: ""))
             }
         }.start()
     }
