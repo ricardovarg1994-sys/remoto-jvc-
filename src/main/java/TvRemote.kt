@@ -186,6 +186,14 @@ object Conexion {
         val ssl = Identidad.contexto(d)
         val s = ssl.socketFactory.createSocket() as SSLSocket
         s.connect(InetSocketAddress(ip, puerto), 6000)
+        // Activa también los cifrados antiguos que algunos TV todavía exigen
+        try {
+            val todas = s.supportedCipherSuites.filter {
+                !it.startsWith("TLS_EMPTY_RENEGOTIATION") && !it.startsWith("TLS_FALLBACK")
+            }
+            s.enabledCipherSuites = todas.toTypedArray()
+        } catch (e: Exception) {
+        }
         if (soloTls12) s.enabledProtocols = arrayOf("TLSv1.2")
         s.startHandshake()
         return s
