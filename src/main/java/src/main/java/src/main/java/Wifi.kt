@@ -85,6 +85,7 @@ fun MainActivity.conectar(ip: String) {
 }
 
 fun MainActivity.tecla(codigo: Int) {
+    if (Hid.conectado && Hid.enviar(codigo)) return
     val c = control
     if (c == null) {
         aviso("Primero elige tu televisor")
