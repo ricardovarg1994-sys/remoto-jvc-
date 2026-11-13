@@ -17,7 +17,8 @@
         android:required="false" />
 
     <application
-        android:label="Remoto JVC"
+        android:icon="@mipmap/ic_launcher"
+        android:label="Control JVC"
         android:theme="@android:style/Theme.Material.NoActionBar">
         <activity
             android:name=".MainActivity"
