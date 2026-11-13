@@ -11,6 +11,8 @@ import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import java.util.concurrent.Executors
 
 // El teléfono se presenta ante el TV como un teclado / control remoto Bluetooth
@@ -43,9 +45,12 @@ object Hid {
     var registrada = false
     var dispositivo: BluetoothDevice? = null
     @Volatile var conectado = false
+    @Volatile var quiere = false
+    var intentos = 0
     var aviso: (String) -> Unit = {}
     private val envios = Executors.newSingleThreadExecutor()
     private val llamadas = Executors.newSingleThreadExecutor()
+    private val manejador = Handler(Looper.getMainLooper())
 
     fun iniciar(ctx: Context, alEstado: (String) -> Unit) {
         aviso = alEstado
@@ -55,7 +60,7 @@ object Hid {
             aviso("Este teléfono no tiene Bluetooth")
             return
         }
-        adaptador.getProfileProxy(ctx, object : BluetoothProfile.ServiceListener {
+        adaptador.getProfileProxy(ctx.applicationContext, object : BluetoothProfile.ServiceListener {
             override fun onServiceConnected(profile: Int, p: BluetoothProfile) {
                 if (profile == BluetoothProfile.HID_DEVICE) {
                     proxy = p as BluetoothHidDevice
@@ -81,17 +86,21 @@ object Hid {
                 registrada = registered
                 if (registered) {
                     val d = dispositivo
-                    if (d != null) p.connect(d)
+                    if (d != null && !conectado) p.connect(d)
+                } else if (quiere) {
+                    reintentar()
                 }
             }
             override fun onConnectionStateChanged(device: BluetoothDevice?, state: Int) {
                 conectado = state == BluetoothProfile.STATE_CONNECTED
                 if (conectado) {
+                    intentos = 0
                     aviso("Bluetooth conectado ✔")
                 } else if (state == BluetoothProfile.STATE_CONNECTING) {
                     aviso("Conectando por Bluetooth…")
-                } else {
+                } else if (state == BluetoothProfile.STATE_DISCONNECTED) {
                     aviso("Bluetooth desconectado")
+                    reintentar()
                 }
             }
         })
@@ -100,8 +109,30 @@ object Hid {
         }
     }
 
+    // Si se cae la conexión, vuelve a intentar sola (hasta 6 veces)
+    private fun reintentar() {
+        val d = dispositivo ?: return
+        if (!quiere) return
+        if (intentos >= 6) {
+            aviso("Bluetooth desconectado. Toca + para volver a conectar")
+            return
+        }
+        intentos++
+        aviso("Bluetooth desconectado, reintentando " + intentos + "/6…")
+        manejador.postDelayed({
+            if (conectado) return@postDelayed
+            val p = proxy ?: return@postDelayed
+            try {
+                if (!registrada) registrar() else p.connect(d)
+            } catch (e: Exception) {
+            }
+        }, 1500L * intentos)
+    }
+
     fun conectar(d: BluetoothDevice) {
         dispositivo = d
+        quiere = true
+        intentos = 0
         val p = proxy
         if (p == null) {
             aviso("Preparando Bluetooth… vuelve a elegir el TV en un momento")
@@ -187,6 +218,8 @@ fun MainActivity.bluetoothAuto() {
     if (Hid.conectado) return
     val d = try { adaptador.getRemoteDevice(mac) } catch (e: Exception) { return }
     Hid.dispositivo = d
+    Hid.quiere = true
+    Hid.intentos = 0
     Hid.iniciar(this) { msg -> estado(msg) }
     if (Hid.proxy != null && Hid.registrada) Hid.conectar(d)
 }
