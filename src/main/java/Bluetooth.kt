@@ -168,6 +168,25 @@ fun MainActivity.bluetoothDialogo() {
     val nombres = Array(lista.size) { lista[it].name ?: lista[it].address }
     AlertDialog.Builder(this)
         .setTitle("Elige tu TV (Bluetooth)")
-        .setItems(nombres) { _, i -> Hid.conectar(lista[i]) }
+        .setItems(nombres) { _, i ->
+            prefs.edit().putString("bt_mac", lista[i].address).apply()
+            Hid.conectar(lista[i])
+        }
         .show()
+}
+
+// Reconecta solo al TV Bluetooth guardado cuando vuelves a abrir la app
+@SuppressLint("MissingPermission")
+fun MainActivity.bluetoothAuto() {
+    val mac = prefs.getString("bt_mac", null) ?: return
+    if (Build.VERSION.SDK_INT >= 31 &&
+        checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+    ) return
+    val adaptador = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+    if (adaptador == null || !adaptador.isEnabled) return
+    if (Hid.conectado) return
+    val d = try { adaptador.getRemoteDevice(mac) } catch (e: Exception) { return }
+    Hid.dispositivo = d
+    Hid.iniciar(this) { msg -> estado(msg) }
+    if (Hid.proxy != null && Hid.registrada) Hid.conectar(d)
 }
