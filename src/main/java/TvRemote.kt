@@ -188,7 +188,7 @@ object Conexion {
         s.connect(InetSocketAddress(ip, puerto), 6000)
         // Activa también los cifrados antiguos que algunos TV todavía exigen
         try {
-            val todas = s.supportedCipherSuites.filter {
+            val todas = s.enabledCipherSuites.filter {
                 !it.startsWith("TLS_EMPTY_RENEGOTIATION") && !it.startsWith("TLS_FALLBACK")
             }
             s.enabledCipherSuites = todas.toTypedArray()
@@ -393,4 +393,4 @@ class Control(ctx: Context, private val ip: String, private val aviso: (String) 
         salida = null
         conectado = false
     }
-}
+} 
