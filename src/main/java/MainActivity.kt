@@ -133,6 +133,12 @@ class MainActivity : Activity() {
         buscarTv()
     }
 
+    // Al volver a la app, reconecta el Bluetooth guardado
+    override fun onResume() {
+        super.onResume()
+        bluetoothAuto()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         detenerBusqueda()
