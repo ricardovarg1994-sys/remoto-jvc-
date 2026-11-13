@@ -3,6 +3,7 @@ package com.remoto.jvc
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -109,6 +110,13 @@ class MainActivity : Activity() {
         apps.setOnClickListener { appsDialogo() }
         raiz.addView(fila(silencio, menu, apps))
 
+        // Fila 5: teclado y voz
+        val teclado = pastilla("⌨  TECLADO")
+        pulsable(teclado, false) { tecladoTv() }
+        val voz = pastilla("🎤  VOZ")
+        pulsable(voz, false) { vozTv() }
+        raiz.addView(fila(teclado, voz))
+
         // Círculo de navegación
         raiz.addView(crearDpad())
 
@@ -138,6 +146,12 @@ class MainActivity : Activity() {
         super.onResume()
         bluetoothAuto()
         iniciarServicioBt()
+    }
+
+    // Resultado del micrófono
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        recibirVozTv(requestCode, resultCode, data)
     }
 
     override fun onDestroy() {
