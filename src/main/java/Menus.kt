@@ -25,12 +25,13 @@ import android.widget.Toast
 
 // ================= Menús =================
 fun MainActivity.menuMas() {
-    val items = arrayOf("Buscar televisores", "Conectar por IP…", "Ajustes IR (encendido)")
+    val items = arrayOf("Conectar por Bluetooth", "Buscar televisores (Wi-Fi)", "Conectar por IP…", "Ajustes IR (encendido)")
     AlertDialog.Builder(this)
         .setItems(items) { _, i ->
             when (i) {
-                0 -> buscarTv()
-                1 -> ipDialogo()
+                0 -> bluetoothDialogo()
+                1 -> buscarTv()
+                2 -> ipDialogo()
                 else -> ajustesIr()
             }
         }
