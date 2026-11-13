@@ -94,4 +94,57 @@ class MainActivity : Activity() {
         raiz.addView(fila(doble("VOL −", 25, "VOL +", 24), doble("CH −", 167, "CH +", 166)))
 
         // Fila 3: inicio y atrás
-        val inicio = pastill
+        val inicio = pastilla("⌂  INICIO")
+        pulsable(inicio, false) { tecla(3) }
+        val atras = pastilla("←  ATRÁS")
+        pulsable(atras, false) { tecla(4) }
+        raiz.addView(fila(inicio, atras))
+
+        // Fila 4: silencio, menú, apps
+        val silencio = pastilla("SILENCIO")
+        pulsable(silencio, false) { tecla(164) }
+        val menu = pastilla("MENÚ")
+        pulsable(menu, false) { tecla(82) }
+        val apps = pastilla("APPS")
+        apps.setOnClickListener { appsDialogo() }
+        raiz.addView(fila(silencio, menu, apps))
+
+        // Círculo de navegación
+        raiz.addView(crearDpad())
+
+        // Reproducir / pausa
+        val play = pastilla("⏯")
+        pulsable(play, false) { tecla(85) }
+        raiz.addView(fila(play))
+
+        val scroll = ScrollView(this)
+        scroll.setBackgroundColor(Color.parseColor("#101010"))
+        scroll.addView(raiz)
+        setContentView(scroll)
+
+        actualizarChip()
+
+        // Si ya hay un TV emparejado, intenta conectar de inmediato con su última IP
+        val nombreGuardado = prefs.getString("tv_nombre", null)
+        val ipGuardada = prefs.getString("ip", "") ?: ""
+        if (nombreGuardado != null && ipGuardada.isNotEmpty() && prefs.getBoolean("par_" + nombreGuardado, false)) {
+            conectar(ipGuardada)
+        }
+        buscarTv()
+    }
+
+    // Al volver a la app, reconecta el Bluetooth guardado y mantiene vivo el servicio
+    override fun onResume() {
+        super.onResume()
+        bluetoothAuto()
+        iniciarServicioBt()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        detenerBusqueda()
+        manejador.removeCallbacksAndMessages(null)
+        control?.cerrar()
+        emparejador?.cancelar()
+    }
+}
